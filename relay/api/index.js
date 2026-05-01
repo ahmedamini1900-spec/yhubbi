@@ -8,18 +8,23 @@ export const config = {
   maxDuration: 60,
 };
 
-const TARGET_BASE = (process.env.TARGET_DOMAIN || "https://www.youtube.com").replace(/\/$/, "");
+// ==================== تنظیمات اصلی ====================
+const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
 const UPSTREAM_DNS_ORDER = (process.env.UPSTREAM_DNS_ORDER || "ipv4first").trim().toLowerCase();
 const PLATFORM_HEADER_PREFIX = `x-${String.fromCharCode(118, 101, 114, 99, 101, 108)}-`;
 const RELAY_PATH = normalizeRelayPath(process.env.RELAY_PATH || "/relay");
 const RELAY_KEY = (process.env.RELAY_KEY || "").trim();
+
 const UPSTREAM_TIMEOUT_MS = parsePositiveInt(process.env.UPSTREAM_TIMEOUT_MS, 120000, 1000);
 const MAX_INFLIGHT = parsePositiveInt(process.env.MAX_INFLIGHT, 192, 1);
 const MAX_UP_BPS = parseNonNegativeInt(process.env.MAX_UP_BPS, 5242880);
 const MAX_DOWN_BPS = parseNonNegativeInt(process.env.MAX_DOWN_BPS, 5242880);
+
 applyDnsPreference();
 
+// ==================== تنظیمات هدر و متد ====================
 const ALLOWED_METHODS = new Set(["GET", "HEAD", "POST"]);
+
 const FORWARD_HEADER_EXACT = new Set([
   "accept",
   "accept-encoding",
@@ -32,6 +37,7 @@ const FORWARD_HEADER_EXACT = new Set([
   "referer",
   "user-agent",
 ]);
+
 const FORWARD_HEADER_PREFIXES = ["sec-ch-", "sec-fetch-"];
 
 const STRIP_HEADERS = new Set([
@@ -56,14 +62,16 @@ const STRIP_HEADERS = new Set([
 
 let inFlight = 0;
 
+// ==================== هندلر اصلی ====================
 export default async function handler(req, res) {
   const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = Date.now();
   let slotAcquired = false;
 
+  // چک کردن تنظیمات ضروری
   if (!TARGET_BASE) {
     res.statusCode = 500;
-    return res.end("Misconfigured: TARGET_DOMAIN is not set");
+    return res.end("Misconfigured: TARGET_DOMAIN is not set in Environment Variables");
   }
   if (!RELAY_PATH) {
     res.statusCode = 500;
@@ -95,6 +103,7 @@ export default async function handler(req, res) {
       return res.end("Method Not Allowed");
     }
 
+    // چک کردن کلید امنیتی (اگر تنظیم کرده باشی)
     if (RELAY_KEY) {
       const token = (req.headers["x-relay-key"] || "").toString();
       if (token !== RELAY_KEY) {
@@ -102,6 +111,7 @@ export default async function handler(req, res) {
         return res.end("Forbidden");
       }
     }
+
     if (!tryAcquireSlot()) {
       res.statusCode = 503;
       res.setHeader("retry-after", "1");
@@ -109,20 +119,25 @@ export default async function handler(req, res) {
     }
     slotAcquired = true;
 
+    // ساخت URL نهایی برای سرور خودت
     const targetUrl = `${TARGET_BASE}${normalizedPath}${url.search || ""}`;
 
     const headers = {};
     const clientIp = toHeaderValue(req.headers["x-real-ip"] || req.headers["x-forwarded-for"]);
+
     for (const key of Object.keys(req.headers)) {
       const lower = key.toLowerCase();
       const value = req.headers[key];
+
       if (STRIP_HEADERS.has(lower)) continue;
       if (lower.startsWith(PLATFORM_HEADER_PREFIX)) continue;
       if (lower === "x-relay-key") continue;
       if (!shouldForwardHeader(lower)) continue;
+
       const normalizedValue = toHeaderValue(value);
       if (normalizedValue) headers[lower] = normalizedValue;
     }
+
     if (clientIp) headers["x-forwarded-for"] = clientIp;
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
@@ -148,6 +163,7 @@ export default async function handler(req, res) {
       const upstream = await fetch(targetUrl, fetchOpts);
 
       res.statusCode = upstream.status;
+
       for (const [headerName, headerValue] of upstream.headers) {
         const k = headerName.toLowerCase();
         if (k === "transfer-encoding" || k === "connection") continue;
@@ -167,26 +183,16 @@ export default async function handler(req, res) {
       }
 
       const durationMs = Date.now() - startedAt;
-      console.info("relay ok", {
-        requestId,
-        path: normalizedPath,
-        rawPath: url.pathname,
-        method: req.method,
-        status: upstream.status,
-        durationMs,
-      });
+      console.info("relay ok", { requestId, path: normalizedPath, method: req.method, status: upstream.status, durationMs });
+
     } finally {
       clearTimeout(timeoutRef);
     }
   } catch (err) {
     const durationMs = Date.now() - startedAt;
+
     if (err?.name === "AbortError") {
-      console.error("relay timeout", {
-        requestId,
-        method: req.method,
-        durationMs,
-        timeoutMs: UPSTREAM_TIMEOUT_MS,
-      });
+      console.error("relay timeout", { requestId, method: req.method, durationMs });
       if (!res.headersSent) {
         res.statusCode = 504;
         return res.end("Gateway Timeout: Upstream Timeout");
@@ -194,12 +200,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    console.error("relay error", {
-      requestId,
-      method: req.method,
-      durationMs,
-      error: String(err),
-    });
+    console.error("relay error", { requestId, method: req.method, durationMs, error: String(err) });
     if (!res.headersSent) {
       res.statusCode = 502;
       return res.end("Bad Gateway: Tunnel Failed");
@@ -209,6 +210,7 @@ export default async function handler(req, res) {
   }
 }
 
+// ==================== توابع کمکی (بدون تغییر) ====================
 function shouldForwardHeader(headerName) {
   if (FORWARD_HEADER_EXACT.has(headerName)) return true;
   for (const prefix of FORWARD_HEADER_PREFIXES) {
@@ -285,7 +287,6 @@ function createThrottleTransform(bytesPerSecond) {
     const now = Date.now();
     const elapsedMs = now - lastRefill;
     if (elapsedMs <= 0) return;
-
     const refillAmount = (elapsedMs * bytesPerSecond) / 1000;
     tokens = Math.min(burstCap, tokens + refillAmount);
     lastRefill = now;
@@ -302,7 +303,6 @@ function createThrottleTransform(bytesPerSecond) {
 
       const pump = () => {
         refillTokens();
-
         if (tokens < 1) {
           setTimeout(pump, 5);
           return;
@@ -327,4 +327,3 @@ function createThrottleTransform(bytesPerSecond) {
     },
   });
 }
-
