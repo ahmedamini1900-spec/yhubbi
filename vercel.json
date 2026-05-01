@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/relay/:path*",
+      "destination": "/relay/api/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/youtube/:path*"
+    }
+  ]
+}
