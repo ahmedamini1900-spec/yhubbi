@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/relay/:path*",
-      "destination": "/relay/api/:path*"
+      "destination": "/relay/api/index"
     },
     {
       "source": "/:path*",
