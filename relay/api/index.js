@@ -8,7 +8,7 @@ export const config = {
   maxDuration: 60,
 };
 
-const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+const TARGET_BASE = (process.env.TARGET_DOMAIN || "https://www.youtube.com").replace(/\/$/, "");
 const UPSTREAM_DNS_ORDER = (process.env.UPSTREAM_DNS_ORDER || "ipv4first").trim().toLowerCase();
 const PLATFORM_HEADER_PREFIX = `x-${String.fromCharCode(118, 101, 114, 99, 101, 108)}-`;
 const RELAY_PATH = normalizeRelayPath(process.env.RELAY_PATH || "/relay");
@@ -17,7 +17,6 @@ const UPSTREAM_TIMEOUT_MS = parsePositiveInt(process.env.UPSTREAM_TIMEOUT_MS, 12
 const MAX_INFLIGHT = parsePositiveInt(process.env.MAX_INFLIGHT, 192, 1);
 const MAX_UP_BPS = parseNonNegativeInt(process.env.MAX_UP_BPS, 5242880);
 const MAX_DOWN_BPS = parseNonNegativeInt(process.env.MAX_DOWN_BPS, 5242880);
-
 applyDnsPreference();
 
 const ALLOWED_METHODS = new Set(["GET", "HEAD", "POST"]);
