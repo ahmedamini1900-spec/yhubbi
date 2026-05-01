@@ -2,6 +2,5 @@
   "name": "yhubbi-relay",
   "version": "1.0.0",
   "type": "module",
-  "description": "XHTTP Relay for Yhubbi",
   "private": true
 }
